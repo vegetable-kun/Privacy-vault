@@ -1,96 +1,80 @@
 # vault
 
-A single-file encrypted credential manager written in pure Python 3.10+.
-No third-party dependencies — uses only the standard library.
+一个用纯 Python 3.10+ 编写的单文件加密凭据管理器。
+**不依赖任何第三方包**，只用 Python 标准库。
 
-## What it does
+## 功能
 
-- Stores accounts, passwords, API keys, tokens, custom fields per platform
-  (e.g. GitHub, AWS, …).
-- One platform can hold many entries; each entry has `username`, `password`,
-  `url`, `tags`, `notes`, and a free-form `fields` key/value bag for API keys
-  or any extra data.
-- Master-password-protected. File at rest is opaque ciphertext.
-- Interactive CLI with bilingual (English / 简体中文) menus; switchable at
-  runtime from the menu (`12) Language`).
-- Import / export to plaintext JSON or CSV (with a warning).
-- Search across platforms, usernames, URLs, tags, notes, and field values.
+- 按平台（例如 GitHub、AWS 等）存放账号、密码、API key、token 以及自定义字段。
+- 一个平台下可挂多条条目；每条条目包含 `username`、`password`、`url`、`tags`、`notes`，以及一个用于存放 API key 等任意附加数据的 `fields` 自由键值表。
+- 主密码保护；文件落盘后对外是不可识别的密文。
+- 交互式 CLI，菜单支持**中英双语**（English / 简体中文），运行中可通过 `12) Language` 切换。
+- 支持 JSON / CSV 明文导入与导出（写入前会给出明确警告）。
+- 支持跨平台、账号、网址、标签、备注、字段值的模糊搜索。
 
-## Threat model
+## 威胁模型
 
-Protects credentials at rest against disk theft or casual file inspection,
-**assuming**:
+在满足以下前提时，本工具能保护**静态落盘**的凭据不被磁盘盗窃或随意查阅：
 
-- The master password is strong (≥ 12 chars; longer is better).
-- The local OS is not compromised at unlock time (no keylogger, no malicious
-  process reading memory).
+- 主密码足够强（≥ 12 个字符，越长越好）。
+- 解锁时刻本地操作系统未被入侵（无键盘记录器、无恶意进程读取内存）。
 
-Does **not** protect against a compromised OS, shoulder-surfing, or unlocked
-in-memory exposure.
+**不**防御：操作系统被入侵、肩窥、解锁状态下内存中的明文泄露。
 
-## Crypto
+## 加密方案
 
-| Component   | Choice                                                    |
-| ----------- | --------------------------------------------------------- |
-| Cipher      | AES-256-GCM (AEAD; tag checks both integrity + auth)      |
-| KDF         | PBKDF2-HMAC-SHA256, 600 000 iterations                    |
-| Salt        | 16 bytes, random, generated once at vault creation        |
-| Nonce       | 12 bytes, random per write                                |
-| AAD         | bound to file format string `vault-v1`                    |
+| 组件       | 选型                                                   |
+| ---------- | ------------------------------------------------------ |
+| 对称算法   | AES-256-GCM（AEAD，Tag 同时校验完整性与真实性）         |
+| 密钥派生   | PBKDF2-HMAC-SHA256，600 000 次迭代                     |
+| Salt       | 16 字节随机，库创建时生成一次，写入文件头              |
+| Nonce      | 12 字节随机，每次写入重新生成                          |
+| AAD        | 绑定文件格式字符串 `vault-v1`                          |
 
-AES-GCM is implemented from scratch in `vault.py` (S-box, MixColumns, GHASH)
-to keep the script dependency-free. The implementation follows NIST SP 800-38D.
+为保持脚本零依赖，`vault.py` 内**自实现**了 AES-GCM（S-box、MixColumns、GHASH），遵循 NIST SP 800-38D。
 
-## Layout
+## 目录结构
 
 ```
 vault/
-  vault.py             # script entry point (python3 vault.py)
+  vault.py             # 脚本入口（python3 vault.py）
   README.md
   tests/
-    test_vault.py      # self-tests (python3 tests/test_vault.py)
+    test_vault.py      # 自测脚本（python3 tests/test_vault.py）
 ```
 
-## Usage
+## 使用方法
 
 ```sh
-python3 vault.py            # uses ~/.vault
+python3 vault.py            # 默认使用 ~/.vault
 python3 vault.py --vault /secure/place/my.vault
 ```
 
-On first run the script prompts to create a new vault and set a master password
-(≥ 12 chars, entered twice).
+首次运行会提示新建库并设置主密码（≥ 12 字符，需输入两次）。
 
-After unlock the menu shows:
+解锁后菜单：
 
 ```
-0) Quit (auto-save)
-1) List platforms
-2) Show platform entries
-3) Add entry
-4) Update entry
-5) Delete entry
-6) Get secret
-7) Search
-8) Rename / delete platform
-9) Change master password
-10) Import / Export
-11) Save & quit
-12) Language (current: en)
+0) Quit (auto-save)        退出（自动保存）
+1) List platforms          列出所有平台
+2) Show platform entries   查看某平台下的条目
+3) Add entry               新增条目
+4) Update entry            修改条目
+5) Delete entry            删除条目
+6) Get secret              获取密钥
+7) Search                  搜索
+8) Rename / delete platform 重命名/删除平台
+9) Change master password  修改主密码
+10) Import / Export        导入/导出
+11) Save & quit            保存并退出
+12) Language               切换语言（中/英）
 ```
 
-`6) Get secret` **prints** the secret to the terminal and reminds you to clear
-it manually within 30 seconds — it deliberately does **not** touch the system
-clipboard.
+- `6) Get secret` 会把密钥**直接打印**到终端，并提醒你在 30 秒内手动清屏。脚本**不会**触碰系统剪贴板。
+- `9) Change master password` 用新主密码重新加密整库（同时轮换 salt）。
+- `10) Import / Export` 支持 JSON 或 CSV。明文导出前会显示明确警告，请仅用于迁移/备份并妥善保管输出文件。
 
-`9) Change master password` re-encrypts the vault under a new master password
-(and rotates the salt).
-
-`10) Import / Export` supports JSON or CSV. Plaintext exports print a clear
-warning before writing. Use them for migration / backup and store the output
-files with care.
-
-## File format
+## 文件格式
 
 ```
 +-------+----------+--------+--------+----------+----------+----------+
@@ -104,35 +88,31 @@ files with care.
 +-----------------------------------------------------------------------+
 ```
 
-All multi-byte integers are big-endian.
+所有多字节整数均为大端序（big-endian）。
 
-## Testing
+## 测试
 
 ```sh
 python3 tests/test_vault.py
 ```
 
-Covers:
+覆盖范围：
 
-- AES-GCM round-trip and tamper detection (ciphertext & tag)
-- PBKDF2 stability
-- Header pack/unpack
-- Init + unlock round-trip
-- Wrong-password rejection
-- REPL `add entry` flow (with FakeIO)
-- Language preference persists across save/reload
+- AES-GCM 加解密往返与密文 / Tag 篡改拒绝
+- PBKDF2 派生稳定性
+- 文件头打包与解包
+- 初始化 + 解锁往返
+- 错密码拒绝
+- REPL 添加条目流程（使用 FakeIO 注入）
+- 语言偏好保存与重载
 
-## Backups
+## 备份建议
 
-Treat the `.vault` file like a private SSH key. Copy it to encrypted backup
-media only. Losing the master password means losing all entries — there is no
-recovery.
+请把 `.vault` 文件当作 SSH 私钥对待：只复制到加密的备份介质上。
+**忘记主密码即意味着丢失所有条目，本工具不提供任何找回途径。**
 
-## Limitations
+## 已知限制
 
-- AES-GCM is re-implemented in pure Python; performance is fine for hundreds
-  of entries but slow for tens of thousands.
-- Plaintext exports are intentional and unprotected; the menu prints a
-  warning before writing.
-- No two-factor / TOTP generation (the `totp_secret` field exists in the
-  schema for future use).
+- AES-GCM 为纯 Python 实现；几百条条目性能尚可，条目数上万时较慢。
+- 明文导出是**有意为之**，未做额外保护，菜单会在写入前给出警告。
+- 暂未实现两步验证 / TOTP 验证码生成（`totp_secret` 字段已存在于数据模型中，预留后续扩展）。

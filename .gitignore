@@ -1,0 +1,19 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.coverage
+*.egg-info/
+.venv/
+venv/
+build/
+dist/
+*.swp
+.DS_Store
+
+# Local vault file — never commit a real vault.
+.vault
+*.vault
+vault-export-*.json
+vault-export-*.csv

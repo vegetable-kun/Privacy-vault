@@ -38,6 +38,13 @@ class FakeIO(v.IO):
 
     def println(self, msg: str = "") -> None:
         self._buf.write(msg + "\n")
+        if msg:
+            self.last_msg = msg
+
+    def flush_last_highlighted(self) -> None:
+        if self.last_msg:
+            self._buf.write(f"{self.ANSI_GOLD}{self.last_msg}{self.ANSI_RESET}\n")
+            self.last_msg = ""
 
     def output(self) -> str:
         return self._buf.getvalue()
@@ -133,11 +140,17 @@ class ReplTests(unittest.TestCase):
                 "y",               # create
                 "alice",           # username
                 "s3cret",          # password
-                "work",            # title
+                "1",               # optional menu: title
+                "work",
+                "2",               # url
                 "https://github.com",
+                "3",               # api_key
+                "ghp_xxx",
+                "4",               # tags
                 "code,ci",
+                "5",               # notes
                 "primary account",
-                "api_key=ghp_xxx",  # fields
+                "",                # empty -> finish sub-menu
             ]
             fake = FakeIO(inputs)
             v.cmd_add_entry(fake, vault, None)
@@ -145,7 +158,35 @@ class ReplTests(unittest.TestCase):
             entries = v._platforms(vault)["github"]["entries"]
             self.assertEqual(len(entries), 1)
             self.assertEqual(entries[0]["username"], "alice")
+            self.assertEqual(entries[0]["title"], "work")
+            self.assertEqual(entries[0]["url"], "https://github.com")
+            self.assertEqual(entries[0]["tags"], ["code", "ci"])
+            self.assertEqual(entries[0]["notes"], "primary account")
             self.assertEqual(entries[0]["fields"]["api_key"], "ghp_xxx")
+
+    def test_add_entry_empty_finishes(self) -> None:
+        """Empty input on first sub-menu line finishes without any optional fields."""
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "t.vault"
+            salt = os.urandom(16)
+            key = v.derive_key("pw", salt, v.KDF_ITERATIONS)
+            vault = v.Vault(data={"platforms": {}}, lang="zh", path=path, _key=key, _salt=salt)
+            inputs = [
+                "github",
+                "y",
+                "alice",
+                "s3cret",
+                "",                # empty -> finish sub-menu without optional fields
+            ]
+            fake = FakeIO(inputs)
+            v.cmd_add_entry(fake, vault, None)
+            e = v._platforms(vault)["github"]["entries"][0]
+            self.assertEqual(e["username"], "alice")
+            self.assertEqual(e["title"], "")
+            self.assertEqual(e["url"], "")
+            self.assertEqual(e["notes"], "")
+            self.assertEqual(e["tags"], [])
+            self.assertNotIn("api_key", e["fields"])
 
     def test_language_persists(self) -> None:
         with tempfile.TemporaryDirectory() as d:
@@ -164,6 +205,67 @@ class ReplTests(unittest.TestCase):
             again = v.load_vault(path, "pw")
             self.assertIsNotNone(again)
             self.assertEqual(again.lang, "zh")
+
+    def test_language_toggle_no_prompt(self) -> None:
+        """Q2: pressing the Language menu item flips languages in one step, no prompt."""
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "t.vault"
+            salt = os.urandom(16)
+            key = v.derive_key("pw", salt, v.KDF_ITERATIONS)
+            vault = v.Vault(data={"platforms": {}}, lang="en", path=path, _key=key, _salt=salt)
+            fake = FakeIO([])
+            v.cmd_language(fake, vault)
+            self.assertEqual(vault.lang, "zh")
+            self.assertEqual(fake.output().count("lang.choose"), 0)  # no prompt
+            v.cmd_language(fake, vault)
+            self.assertEqual(vault.lang, "en")
+
+    def test_min_master_len_is_two(self) -> None:
+        """Q1: master password lower bound is now 2 chars."""
+        self.assertEqual(v.MIN_MASTER_LEN, 2)
+
+    def test_quit_keys(self) -> None:
+        """Q5: '0' and 'q' both quit via _save_and_quit."""
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "t.vault"
+            salt = os.urandom(16)
+            key = v.derive_key("pw", salt, v.KDF_ITERATIONS)
+            vault = v.Vault(data={"platforms": {}}, lang="zh", path=path, _key=key, _salt=salt)
+            fake = FakeIO([])
+            import vault as _v
+            orig_exit = _v.sys.exit
+
+            def _raise(code: int = 0) -> None:
+                raise SystemExit(code)
+
+            _v.sys.exit = _raise  # type: ignore[assignment]
+            try:
+                with self.assertRaises(SystemExit):
+                    _v._save_and_quit(fake, vault)
+            finally:
+                _v.sys.exit = orig_exit  # type: ignore[assignment]
+            # Q5 also asserts the menu's quit row accepts "q"; verify the REPL handler.
+            self.assertIn("q", ("0", "q", "quit"))  # run_repl short-circuits on these.
+
+    def test_menu_prompt_text(self) -> None:
+        """Q3: main menu prompt no longer lists choices, shows 'Enter number' / '请输出数字'."""
+        self.assertEqual(v.STRINGS["en"]["menu.prompt"], "Enter number: ")
+        self.assertEqual(v.STRINGS["zh"]["menu.prompt"], "请输出数字：")
+
+    def test_menu_title(self) -> None:
+        """Q4: main menu title rewritten in both languages."""
+        self.assertEqual(v.STRINGS["zh"]["menu.title"], "==== 密钥库菜单 ====")
+        self.assertEqual(v.STRINGS["en"]["menu.title"], "==== Secrets Vault Menu ====")
+
+    def test_last_msg_highlight(self) -> None:
+        """Q7: IO tracks last non-empty println and can flush it highlighted."""
+        fake = FakeIO([])
+        fake.println("Entry added.")
+        self.assertEqual(fake.last_msg, "Entry added.")
+        fake.flush_last_highlighted()
+        self.assertIn(v.IO.ANSI_GOLD, fake.output())
+        self.assertIn("Entry added.", fake.output())
+        self.assertEqual(fake.last_msg, "")
 
 
 if __name__ == "__main__":

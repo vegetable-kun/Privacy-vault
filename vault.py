@@ -44,7 +44,7 @@ TAG_LEN = 16
 AAD = b"vault-v1"
 
 DEFAULT_VAULT_NAME = ".vault"  # ~/.vault
-MIN_MASTER_LEN = 12
+MIN_MASTER_LEN = 2
 PBKDF2_KEY_LEN = 32  # 256-bit
 CLIPBOARD_REMINDER_SECONDS = 30
 
@@ -59,7 +59,7 @@ SUPPORTED_LANGS = (LANG_EN, LANG_ZH)
 STRINGS: dict[str, dict[str, str]] = {
     "en": {
         "title": "Local encrypted credential vault",
-        "menu.title": "==== Vault Menu ====",
+        "menu.title": "==== Secrets Vault Menu ====",
         "menu.list_platforms": "1) List platforms",
         "menu.show_platform": "2) Show platform entries",
         "menu.add": "3) Add entry",
@@ -72,12 +72,12 @@ STRINGS: dict[str, dict[str, str]] = {
         "menu.io": "10) Import / Export",
         "menu.lang": "12) Language (current: {lang})",
         "menu.save_quit": "11) Save & quit",
-        "menu.quit": "0) Quit (auto-save)",
-        "menu.prompt": "Choose [{choices}]: ",
+        "menu.quit": "0) Quit (auto-save, or press q)",
+        "menu.prompt": "Enter number: ",
         "goodbye": "Goodbye.",
         "press_enter": "Press Enter to continue...",
         "init.create": "No vault found. Initialize a new one at {path}? [y/N]: ",
-        "init.master_prompt": "Set master password (>= {n} chars): ",
+        "init.master_prompt": "Set master password (>= {n} chars, mix upper/lower + digits + symbols): ",
         "init.master_confirm": "Confirm master password: ",
         "init.mismatch": "Passwords do not match.",
         "init.short": "Password too short (need >= {n}).",
@@ -103,6 +103,9 @@ STRINGS: dict[str, dict[str, str]] = {
         "entry.notes": "Notes (optional): ",
         "entry.fields": "Custom fields (key=value, comma-separated, optional): ",
         "entry.added": "Entry added.",
+        "entry.optional_menu": "Add optional fields? (1=title 2=url 3=api_key 4=tags 5=notes; empty to finish)",
+        "entry.optional_menu_cur": "[{label}] {field}: ",
+        "entry.optional_done": "(done)",
         "entry.updated": "Entry updated.",
         "entry.deleted": "Entry deleted.",
         "entry.not_found": "Entry not found.",
@@ -124,11 +127,10 @@ STRINGS: dict[str, dict[str, str]] = {
         "io.import_dryrun": "Dry-run: would import {n} entries.",
         "io.dryrun_q": "Dry-run first? [Y/n]: ",
         "pwd.change_old": "Current master password: ",
-        "pwd.change_new": "New master password (>= {n}): ",
+        "pwd.change_new": "New master password (>= {n}, mix upper/lower + digits + symbols): ",
         "pwd.change_confirm": "Confirm new master password: ",
         "pwd.changed": "Master password changed.",
         "lang.switched": "Language switched to {lang}.",
-        "lang.choose": "Choose language [en/zh]: ",
         "err.file_exists": "Vault already exists at {path}; refusing to overwrite.",
         "err.permission": "Could not set permissions on {path}: {err}",
         "err.platform_invalid": "Platform name invalid.",
@@ -139,7 +141,7 @@ STRINGS: dict[str, dict[str, str]] = {
     },
     "zh": {
         "title": "本地加密凭据库",
-        "menu.title": "==== 凭据库菜单 ====",
+        "menu.title": "==== 密钥库菜单 ====",
         "menu.list_platforms": "1) 列出所有平台",
         "menu.show_platform": "2) 查看某平台下的条目",
         "menu.add": "3) 新增条目",
@@ -152,12 +154,12 @@ STRINGS: dict[str, dict[str, str]] = {
         "menu.io": "10) 导入/导出",
         "menu.lang": "12) 切换语言（当前：{lang}）",
         "menu.save_quit": "11) 保存并退出",
-        "menu.quit": "0) 退出（自动保存）",
-        "menu.prompt": "请选择 [{choices}]: ",
+        "menu.quit": "0) 退出（自动保存，或按 q）",
+        "menu.prompt": "请输出数字：",
         "goodbye": "再见。",
         "press_enter": "按 Enter 继续...",
         "init.create": "在 {path} 未找到库，是否新建？[y/N]: ",
-        "init.master_prompt": "设置主密码（>= {n} 个字符）：",
+        "init.master_prompt": "设置主密码（>= {n} 个字符，推荐大小写英文+数字+符号）：",
         "init.master_confirm": "再次输入主密码：",
         "init.mismatch": "两次密码不一致。",
         "init.short": "密码太短（需要 >= {n}）。",
@@ -183,6 +185,9 @@ STRINGS: dict[str, dict[str, str]] = {
         "entry.notes": "备注（可选）：",
         "entry.fields": "自定义字段（key=value，逗号分隔，可选）：",
         "entry.added": "条目已添加。",
+        "entry.optional_menu": "是否添加备注？(1=标题 2=网址 3=API_KEY 4=标签 5=备注；空行退出)",
+        "entry.optional_menu_cur": "[{label}] {field}：",
+        "entry.optional_done": "（完成）",
         "entry.updated": "条目已更新。",
         "entry.deleted": "条目已删除。",
         "entry.not_found": "未找到条目。",
@@ -204,11 +209,10 @@ STRINGS: dict[str, dict[str, str]] = {
         "io.import_dryrun": "试运行：将导入 {n} 条。",
         "io.dryrun_q": "先试运行？[Y/n]: ",
         "pwd.change_old": "当前主密码：",
-        "pwd.change_new": "新主密码（>= {n}）：",
+        "pwd.change_new": "新主密码（>= {n}，推荐大小写英文+数字+符号）：",
         "pwd.change_confirm": "再次输入新主密码：",
         "pwd.changed": "主密码已修改。",
         "lang.switched": "语言已切换为 {lang}。",
-        "lang.choose": "选择语言 [en/zh]：",
         "err.file_exists": "{path} 已存在，拒绝覆盖。",
         "err.permission": "无法设置 {path} 权限：{err}",
         "err.platform_invalid": "平台名非法。",
@@ -769,18 +773,53 @@ def cmd_add_entry(io: "IO", vault: Vault, platform: str | None) -> None:
         io.println(t("entry.username_required", lang=vault.lang))
         return
     password = io.readline(t("entry.password", lang=vault.lang), secret=True)
-    entry = {
+
+    # Optional fields via sub-menu. Empty input (= pressing Enter) finishes.
+    entry: dict[str, Any] = {
         "id": str(uuid.uuid4()),
-        "title": io.readline(t("entry.title", lang=vault.lang)).strip(),
+        "title": "",
         "username": username,
         "password": password,
-        "url": io.readline(t("entry.url", lang=vault.lang)).strip(),
-        "tags": [x.strip() for x in io.readline(t("entry.tags", lang=vault.lang)).split(",") if x.strip()],
-        "notes": io.readline(t("entry.notes", lang=vault.lang)).strip(),
-        "fields": _parse_fields(io.readline(t("entry.fields", lang=vault.lang))),
+        "url": "",
+        "tags": [],
+        "notes": "",
+        "fields": {"api_key": ""},  # reserved; will be removed if left blank
         "created_at": _now_iso(),
         "updated_at": _now_iso(),
     }
+    while True:
+        io.println(t("entry.optional_menu", lang=vault.lang))
+        choice = io.readline("").strip()
+        if choice == "":
+            break
+        if choice == "1":
+            entry["title"] = io.readline(
+                t("entry.optional_menu_cur", lang=vault.lang, field=t("entry.title", lang=vault.lang).rstrip("：: "), label="title")
+            ).strip()
+        elif choice == "2":
+            entry["url"] = io.readline(
+                t("entry.optional_menu_cur", lang=vault.lang, field=t("entry.url", lang=vault.lang).rstrip("：: "), label="url")
+            ).strip()
+        elif choice == "3":
+            entry["fields"]["api_key"] = io.readline(
+                t("entry.optional_menu_cur", lang=vault.lang, field="API_KEY", label="api_key")
+            ).strip()
+        elif choice == "4":
+            tags_line = io.readline(
+                t("entry.optional_menu_cur", lang=vault.lang, field=t("entry.tags", lang=vault.lang).rstrip("：: "), label="tags")
+            ).strip()
+            entry["tags"] = [x.strip() for x in tags_line.split(",") if x.strip()]
+        elif choice == "5":
+            entry["notes"] = io.readline(
+                t("entry.optional_menu_cur", lang=vault.lang, field=t("entry.notes", lang=vault.lang).rstrip("：: "), label="notes")
+            ).strip()
+        else:
+            io.println("?")
+        io.println(t("entry.optional_done", lang=vault.lang))
+
+    if not entry["fields"].get("api_key"):
+        entry["fields"].pop("api_key", None)
+
     _entries(vault, name).append(entry)
     save_vault(vault)
     io.println(t("entry.added", lang=vault.lang))
@@ -965,11 +1004,10 @@ def cmd_import_export(io: "IO", vault: Vault) -> None:
 
 
 def cmd_language(io: "IO", vault: Vault) -> None:
-    choice = io.readline(t("lang.choose", lang=vault.lang)).strip().lower()
-    if choice in SUPPORTED_LANGS:
-        vault.lang = choice
-        save_vault(vault)
-        io.println(t("lang.switched", lang=vault.lang).format(lang=choice))
+    new_lang = LANG_ZH if vault.lang == LANG_EN else LANG_EN
+    vault.lang = new_lang
+    save_vault(vault)
+    io.println(t("lang.switched", lang=vault.lang).format(lang=new_lang))
 
 
 # ---------------------------------------------------------------------------
@@ -1112,6 +1150,12 @@ def _peek_salt(vault: Vault) -> bytes:
 
 
 class IO:
+    ANSI_GOLD = "\033[33;1m"
+    ANSI_RESET = "\033[0m"
+
+    def __init__(self) -> None:
+        self.last_msg: str = ""
+
     def readline(self, prompt: str = "", secret: bool = False) -> str:
         if prompt:
             sys.stdout.write(prompt)
@@ -1122,6 +1166,15 @@ class IO:
 
     def println(self, msg: str = "") -> None:
         print(msg)
+        if msg:
+            self.last_msg = msg
+
+    def flush_last_highlighted(self) -> None:
+        """Print the last non-empty output line in gold, then clear it."""
+        if self.last_msg:
+            sys.stdout.write(f"{self.ANSI_GOLD}{self.last_msg}{self.ANSI_RESET}\n")
+            sys.stdout.flush()
+            self.last_msg = ""
 
 
 # ---------------------------------------------------------------------------
@@ -1130,8 +1183,8 @@ class IO:
 
 
 def _print_menu(vault: Vault) -> None:
-    io = sys.stdout
-    io.write(t("menu.title", lang=vault.lang) + "\n")
+    out = sys.stdout
+    out.write(t("menu.title", lang=vault.lang) + "\n")
     for k in (
         "menu.list_platforms",
         "menu.show_platform",
@@ -1151,9 +1204,9 @@ def _print_menu(vault: Vault) -> None:
             line = t(k, lang=vault.lang).format(lang=vault.lang)
         else:
             line = t(k, lang=vault.lang)
-        io.write(line + "\n")
-    io.write(t("menu.prompt", lang=vault.lang, choices="0/1/2/3/4/5/6/7/8/9/10/11/12"))
-    io.flush()
+        out.write(line + "\n")
+    out.write(t("menu.prompt", lang=vault.lang))
+    out.flush()
 
 
 def run_repl(vault: Vault) -> None:
@@ -1173,6 +1226,7 @@ def run_repl(vault: Vault) -> None:
         "12": lambda: cmd_language(io, vault),
     }
     while True:
+        io.flush_last_highlighted()
         _print_menu(vault)
         choice = io.readline("")
         if choice in ("0", "q", "quit"):

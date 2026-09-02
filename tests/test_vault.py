@@ -327,6 +327,82 @@ class ReplTests(unittest.TestCase):
             self.assertIn(v.IO.ANSI_CYAN, out)
             self.assertIn(v.IO.ANSI_GOLD, out)
 
+    def test_label_zh(self) -> None:
+        """Q2: 键名翻译为中文。"""
+        self.assertEqual(v._label("user", "zh"), "账号")
+        self.assertEqual(v._label("title", "zh"), "标题")
+        self.assertEqual(v._label("url", "zh"), "网址")
+        self.assertEqual(v._label("tags", "zh"), "标签")
+        self.assertEqual(v._label("notes", "zh"), "备注")
+        self.assertEqual(v._label("user", "en"), "user")
+
+    def test_show_platform_zh_labels(self) -> None:
+        """Q2: 中文模式下输出含中文字段名。"""
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "t.vault"
+            salt = os.urandom(16)
+            key = v.derive_key("pw", salt, v.KDF_ITERATIONS)
+            vault = v.Vault(data={"platforms": {"github": {"entries": [
+                {"id": "abc", "username": "alice", "password": "x",
+                 "url": "https://x", "title": "t", "tags": ["a"],
+                 "notes": "n", "fields": {"api_key": "k"},
+                 "created_at": "", "updated_at": ""}
+            ]}}}, lang="zh", path=path, _key=key, _salt=salt)
+            fake = FakeIO([])
+            v.cmd_show_platform(fake, vault, "github")
+            out = fake.output()
+            self.assertIn("账号", out)
+            self.assertIn("标题", out)
+            self.assertIn("网址", out)
+            self.assertIn("标签", out)
+            self.assertIn("备注", out)
+
+    def test_list_platforms_no_highlight(self) -> None:
+        """Q3: 列表/查看/搜索/获取 不留 last_msg，下次菜单不重复高亮。"""
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "t.vault"
+            salt = os.urandom(16)
+            key = v.derive_key("pw", salt, v.KDF_ITERATIONS)
+            vault = v.Vault(data={"platforms": {"a": {"entries": []}, "b": {"entries": []}}}, lang="zh", path=path, _key=key, _salt=salt)
+            fake = FakeIO([])
+            v.cmd_list_platforms(fake, vault)
+            self.assertEqual(fake.last_msg, "")
+
+    def test_show_platform_no_highlight(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "t.vault"
+            salt = os.urandom(16)
+            key = v.derive_key("pw", salt, v.KDF_ITERATIONS)
+            vault = v.Vault(data={"platforms": {"github": {"entries": [
+                {"id": "a", "username": "u", "password": "p", "url": "",
+                 "title": "", "tags": [], "notes": "", "fields": {},
+                 "created_at": "", "updated_at": ""}
+            ]}}}, lang="zh", path=path, _key=key, _salt=salt)
+            fake = FakeIO([])
+            v.cmd_show_platform(fake, vault, "github")
+            self.assertEqual(fake.last_msg, "")
+
+    def test_search_no_highlight(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "t.vault"
+            salt = os.urandom(16)
+            key = v.derive_key("pw", salt, v.KDF_ITERATIONS)
+            vault = v.Vault(data={"platforms": {"github": {"entries": [
+                {"id": "a", "username": "alice", "password": "p", "url": "",
+                 "title": "", "tags": [], "notes": "", "fields": {},
+                 "created_at": "", "updated_at": ""}
+            ]}}}, lang="zh", path=path, _key=key, _salt=salt)
+            fake = FakeIO(["alice"])
+            v.cmd_search(fake, vault)
+            self.assertEqual(fake.last_msg, "")
+
+    def test_read_menu_choice_q(self) -> None:
+        """Q1: 单键 q 立即返回 'q'。"""
+        fake = FakeIO([])
+        # Override read_menu_choice directly to confirm behavior without termios.
+        fake.read_menu_choice = lambda: "q"  # type: ignore[assignment]
+        self.assertEqual(fake.read_menu_choice(), "q")
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

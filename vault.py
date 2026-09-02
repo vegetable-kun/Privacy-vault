@@ -36,7 +36,9 @@ import shutil
 import struct
 import sys
 import tempfile
+import termios
 import time
+import tty
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -84,7 +86,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "menu.io": "10) Import / Export",
         "menu.lang": "12) Language (current: {lang})",
         "menu.save_quit": "11) Save & quit",
-        "menu.quit": "0) Quit (auto-save, or press q)",
+        "menu.quit": "0) Quit (auto-save, or press q to quit immediately)",
         "menu.prompt": "Enter number: ",
         "goodbye": "Goodbye.",
         "press_enter": "Press Enter to continue...",
@@ -168,7 +170,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "menu.io": "10) 导入/导出",
         "menu.lang": "12) 切换语言（当前：{lang}）",
         "menu.save_quit": "11) 保存并退出",
-        "menu.quit": "0) 退出（自动保存，或按 q）",
+        "menu.quit": "0) 退出（自动保存；直接按 q 也立即退出）",
         "menu.prompt": "请输出数字：",
         "goodbye": "嘿嘿，https://github.com/vegetable-kun/Privacy-vault关注谢谢瞄^_^",
         "press_enter": "按 Enter 继续...",
@@ -249,6 +251,34 @@ def t(key: str, lang: str = LANG_EN, **fmt: Any) -> str:
         except (KeyError, IndexError):
             return msg
     return msg
+
+
+LABEL_STRINGS: dict[str, dict[str, str]] = {
+    "en": {
+        "user": "user",
+        "title": "title",
+        "url": "url",
+        "tags": "tags",
+        "notes": "notes",
+        "password": "password",
+        "api_key": "API_KEY",
+    },
+    "zh": {
+        "user": "账号",
+        "title": "标题",
+        "url": "网址",
+        "tags": "标签",
+        "notes": "备注",
+        "password": "密码",
+        "api_key": "API_KEY",
+    },
+}
+
+
+def _label(key: str, lang: str = LANG_EN) -> str:
+    """Translate short field labels (user/title/...) for display."""
+    bucket = LABEL_STRINGS.get(lang, LABEL_STRINGS[LANG_EN])
+    return bucket.get(key, key)
 
 
 # ---------------------------------------------------------------------------
@@ -731,18 +761,21 @@ def cmd_list_platforms(io: "IO", vault: Vault) -> None:
     plats = _platforms(vault)
     if not plats:
         io.println(t("platform.empty", lang=vault.lang))
+        io.clear_last_msg()
         return
     io.println("")
     io.println(t("menu.list_platforms", lang=vault.lang))
     for i, (name, body) in enumerate(sorted(plats.items())):
         io.println(f"  {i:>3}) {name}  ({len(body.get('entries', []))})")
     io.println("")
+    io.clear_last_msg()
 
 
 def cmd_show_platform(io: "IO", vault: Vault, name: str | None) -> None:
     plats = _platforms(vault)
     if not plats:
         io.println(t("platform.empty", lang=vault.lang))
+        io.clear_last_msg()
         return
     if name is None:
         names = sorted(plats.keys())
@@ -766,19 +799,20 @@ def cmd_show_platform(io: "IO", vault: Vault, name: str | None) -> None:
             "  "
             + io.paint_kv("[{}]".format(i), "id={}".format(e.get("id", "")[:8]))
             + "  "
-            + io.paint_kv("user", str(e.get("username", "")))
+            + io.paint_kv(_label("user", vault.lang), str(e.get("username", "")))
             + "  "
-            + io.paint_kv("title", str(e.get("title", "")))
+            + io.paint_kv(_label("title", vault.lang), str(e.get("title", "")))
             + "  "
-            + io.paint_kv("url", str(e.get("url", "")))
+            + io.paint_kv(_label("url", vault.lang), str(e.get("url", "")))
         )
         if e.get("tags"):
-            io.println("      " + io.paint_kv("tags", ",".join(e["tags"])))
+            io.println("      " + io.paint_kv(_label("tags", vault.lang), ",".join(e["tags"])))
         if e.get("fields"):
             for k, v_ in e["fields"].items():
                 io.println("      " + io.paint_kv(f"field[{k}]", str(v_)))
         if e.get("notes"):
-            io.println("      " + io.paint_kv("notes", str(e["notes"])))
+            io.println("      " + io.paint_kv(_label("notes", vault.lang), str(e["notes"])))
+    io.clear_last_msg()
 
 
 def cmd_add_entry(io: "IO", vault: Vault, platform: str | None) -> None:
@@ -948,13 +982,14 @@ def cmd_get_secret(io: "IO", vault: Vault) -> None:
         io.println(t("get.not_found", lang=vault.lang))
         return
     _, entry = found
-    io.println("  " + io.paint_kv("user", str(entry.get("username", ""))))
-    io.println("  " + io.paint_kv("password", str(entry.get("password", ""))))
+    io.println("  " + io.paint_kv(_label("user", vault.lang), str(entry.get("username", ""))))
+    io.println("  " + io.paint_kv(_label("password", vault.lang), str(entry.get("password", ""))))
     if entry.get("fields"):
         for k, v in entry["fields"].items():
             io.println("  " + io.paint_kv(f"field[{k}]", str(v)))
     io.println(t("get.printed", lang=vault.lang))
     _remind_clipboard_clear()
+    io.clear_last_msg()
 
 
 def cmd_search(io: "IO", vault: Vault) -> None:
@@ -980,6 +1015,7 @@ def cmd_search(io: "IO", vault: Vault) -> None:
                 matches.append((name, e))
     if not matches:
         io.println(t("search.empty", lang=vault.lang))
+        io.clear_last_msg()
         return
     io.println(t("search.results", lang=vault.lang, n=len(matches)))
     for name, e in matches:
@@ -987,10 +1023,11 @@ def cmd_search(io: "IO", vault: Vault) -> None:
             "  "
             + io.paint_kv(f"[{name}]", "id={}".format(e.get("id", "")[:8]))
             + "  "
-            + io.paint_kv("user", str(e.get("username", "")))
+            + io.paint_kv(_label("user", vault.lang), str(e.get("username", "")))
             + "  "
-            + io.paint_kv("title", str(e.get("title", "")))
+            + io.paint_kv(_label("title", vault.lang), str(e.get("title", "")))
         )
+    io.clear_last_msg()
 
 
 def cmd_rename_platform(io: "IO", vault: Vault) -> None:
@@ -1230,6 +1267,46 @@ class IO:
             return getpass.getpass("")
         return sys.stdin.readline().rstrip("\n")
 
+    def read_menu_choice(self) -> str:
+        """Read one menu selection.
+
+        - 'q' (or 'Q') returns immediately with "q" (single-key quit).
+        - '\\x03' / '\\x04' returns with "q" (Ctrl-C / Ctrl-D also quit).
+        - Other input still requires Enter to submit.
+        """
+        fd = sys.stdin.fileno()
+        try:
+            old = termios.tcgetattr(fd)
+        except termios.error:
+            return self.readline("")
+        tty.setraw(fd)
+        try:
+            buf = bytearray()
+            while True:
+                ch = os.read(fd, 1)
+                if ch in (b"q", b"Q"):
+                    sys.stdout.write("q\r\n")
+                    sys.stdout.flush()
+                    return "q"
+                if ch in (b"\x03", b"\x04"):
+                    return "q"
+                if ch in (b"\r", b"\n"):
+                    sys.stdout.write("\r\n")
+                    sys.stdout.flush()
+                    return buf.decode("utf-8", errors="replace").strip()
+                if ch in (b"\x7f", b"\b"):
+                    if buf:
+                        buf.pop()
+                        sys.stdout.write("\b \b")
+                        sys.stdout.flush()
+                    continue
+                if ch:
+                    buf.append(ch[0])
+                    sys.stdout.write(ch.decode("utf-8", errors="replace"))
+                    sys.stdout.flush()
+        finally:
+            termios.tcsetattr(fd, termios.TCSADRAIN, old)
+
     def println(self, msg: str = "") -> None:
         print(msg)
         if msg:
@@ -1245,6 +1322,10 @@ class IO:
     def paint_kv(self, key: str, value: str) -> str:
         """Render 'key: value' with key in cyan and value in gold."""
         return f"{self.ANSI_CYAN}{key}{self.ANSI_RESET}: {self.ANSI_GOLD}{value}{self.ANSI_RESET}"
+
+    def clear_last_msg(self) -> None:
+        """Forget any pending 'last message' so it won't be highlighted next loop."""
+        self.last_msg = ""
 
 
 # ---------------------------------------------------------------------------
@@ -1298,8 +1379,8 @@ def run_repl(vault: Vault) -> None:
     while True:
         io.flush_last_highlighted()
         _print_menu(vault)
-        choice = io.readline("")
-        if choice in ("0", "q", "quit"):
+        choice = io.read_menu_choice()
+        if choice in ("", "0", "q", "quit"):
             _save_and_quit(io, vault)
             return
         handler = handlers.get(choice)

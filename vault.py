@@ -170,7 +170,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "menu.save_quit": "11) 保存并退出",
         "menu.quit": "0) 退出（自动保存，或按 q）",
         "menu.prompt": "请输出数字：",
-        "goodbye": "再见。",
+        "goodbye": "嘿嘿，https://github.com/vegetable-kun/Privacy-vault关注谢谢瞄^_^",
         "press_enter": "按 Enter 继续...",
         "init.create": "在 {path} 未找到库，是否新建？[y/N]: ",
         "init.master_prompt": "设置主密码（>= {n} 个字符，推荐大小写英文+数字+符号）：",

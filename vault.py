@@ -133,13 +133,17 @@ STRINGS: dict[str, dict[str, str]] = {
         "search.prompt": "Search query: ",
         "search.empty": "No matches.",
         "search.results": "{n} match(es):",
-        "io.menu": "  a) Export to JSON\n  b) Export to CSV\n  c) Import from JSON\n  d) Import from CSV\n  e) Back",
+        "io.menu": "  a) Export to JSON\n  b) Export to CSV\n  c) Import from JSON\n  d) Import from CSV\n  f) Import from browser CSV (Firefox/Chrome/Edge)\n  e) Back",
         "io.choice": "Choice: ",
         "io.export_warn": "WARNING: the export file is PLAINTEXT. Handle with care.",
         "io.export_path": "Export path [{default}]: ",
         "io.import_path": "Import path: ",
         "io.imported": "Imported {n} entries.",
         "io.import_dryrun": "Dry-run: would import {n} entries.",
+        "browser.detect": "Detected browser: {name}",
+        "browser.unknown": "Unrecognized CSV header. Expected one of Firefox / Chrome / Edge.",
+        "browser.hint": "Tip: in Firefox open about:logins and Export Logins; in Chrome/Edge open chrome://settings/passwords and Export passwords.",
+        "browser.confirm_apply": "Apply import? Type 'yes' to write {n} entries to vault: ",
         "io.dryrun_q": "Dry-run first? [Y/n]: ",
         "pwd.change_old": "Current master password: ",
         "pwd.change_new": "New master password (>= {n}, mix upper/lower + digits + symbols): ",
@@ -218,13 +222,17 @@ STRINGS: dict[str, dict[str, str]] = {
         "search.prompt": "搜索关键字：",
         "search.empty": "无匹配结果。",
         "search.results": "共 {n} 条匹配：",
-        "io.menu": "  a) 导出为 JSON\n  b) 导出为 CSV\n  c) 从 JSON 导入\n  d) 从 CSV 导入\n  e) 返回",
+        "io.menu": "  a) 导出为 JSON\n  b) 导出为 CSV\n  c) 从 JSON 导入\n  d) 从 CSV 导入\n  f) 从浏览器 CSV 导入（Firefox/Chrome/Edge）\n  e) 返回",
         "io.choice": "选择：",
         "io.export_warn": "警告：导出文件为明文，请妥善处理。",
         "io.export_path": "导出路径 [{default}]：",
         "io.import_path": "导入路径：",
         "io.imported": "已导入 {n} 条。",
         "io.import_dryrun": "试运行：将导入 {n} 条。",
+        "browser.detect": "已识别浏览器：{name}",
+        "browser.unknown": "无法识别 CSV 表头。请确认来源是 Firefox / Chrome / Edge。",
+        "browser.hint": "提示：Firefox 打开 about:logins → 导出登录信息；Chrome / Edge 打开 chrome://settings/passwords → 导出密码。",
+        "browser.confirm_apply": "确认导入？输入 'yes' 写入 {n} 条到 vault：",
         "io.dryrun_q": "先试运行？[Y/n]: ",
         "pwd.change_old": "当前主密码：",
         "pwd.change_new": "新主密码（>= {n}，推荐大小写英文+数字+符号）：",
@@ -1107,6 +1115,9 @@ def cmd_import_export(io: "IO", vault: Vault) -> None:
         src = Path(io.readline(t("io.import_path", lang=vault.lang)).strip())
         dry = io.readline(t("io.dryrun_q", lang=vault.lang)).strip().lower() != "n"
         _import_csv(io, vault, src, dry)
+    elif choice == "f":
+        src = Path(io.readline(t("io.import_path", lang=vault.lang)).strip())
+        _import_browser_csv(io, vault, src)
     else:
         return
 
@@ -1188,6 +1199,126 @@ def _import_csv(io: "IO", vault: Vault, src: Path, dry: bool) -> None:
         return
     save_vault(vault)
     io.println(t("io.imported", lang=vault.lang, n=n))
+
+
+# ---------------------------------------------------------------------------
+# Browser CSV import (Firefox / Chrome / Edge)
+#
+# Each browser exports a slightly different column layout. We autodetect by
+# header and map columns into vault's Entry shape. No browser-internal crypto
+# is touched — the user exports the CSV from the browser UI beforehand.
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class BrowserFormat:
+    name: str           # "firefox" / "chrome/edge"
+    url_col: str
+    user_col: str
+    pwd_col: str
+    title_col: str | None = None
+
+
+_BROWSER_FORMATS: list[BrowserFormat] = [
+    BrowserFormat(name="firefox", url_col="url", user_col="username", pwd_col="password"),
+    BrowserFormat(name="chrome/edge", url_col="url", user_col="username", pwd_col="password", title_col="name"),
+]
+
+
+def _detect_browser_csv(src: Path) -> BrowserFormat | None:
+    """Identify the browser format by reading only the header row of `src`.
+
+    Chrome/Edge exports must have a `name` column; Firefox must NOT. Both have
+    `url`, `username`, `password`. The `name`-presence test is what tells them
+    apart. Extra columns are tolerated.
+    """
+    with src.open("r", newline="", encoding="utf-8") as f:
+        reader = csv.reader(f)
+        header = next(reader, [])
+    cols = frozenset(c.strip().lower() for c in header if c.strip())
+    required = {"url", "username", "password"}
+    if not required.issubset(cols):
+        return None
+    if "name" in cols:
+        return BrowserFormat(
+            name="chrome/edge", url_col="url", user_col="username", pwd_col="password", title_col="name",
+        )
+    return BrowserFormat(name="firefox", url_col="url", user_col="username", pwd_col="password")
+
+
+def _import_browser_csv(io: "IO", vault: Vault, src: Path) -> None:
+    fmt = _detect_browser_csv(src)
+    if fmt is None:
+        io.println(t("browser.unknown", lang=vault.lang))
+        io.println(t("browser.hint", lang=vault.lang))
+        return
+    io.println(t("browser.detect", lang=vault.lang, name=fmt.name))
+    # First pass: stage entries in memory without touching the vault.
+    staged: list[tuple[str, dict[str, Any]]] = []
+    with src.open("r", newline="", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            url = (row.get(fmt.url_col) or "").strip()
+            username = (row.get(fmt.user_col) or "").strip()
+            password = row.get(fmt.pwd_col) or ""
+            if not url or not username:
+                continue  # skip incomplete rows
+            platform = _platform_name_from_url(url)
+            entry = _normalize_entry({
+                "title": (row.get(fmt.title_col) or "").strip() if fmt.title_col else "",
+                "username": username,
+                "password": password,
+                "url": url,
+                "tags": [],
+                "notes": f"imported from {fmt.name}",
+                "fields": {},
+            })
+            staged.append((platform, entry))
+    n = len(staged)
+    if n == 0:
+        io.println(t("io.import_dryrun", lang=vault.lang, n=0))
+        return
+    # Default behavior: dry-run; require explicit "yes" to commit.
+    io.println(t("io.import_dryrun", lang=vault.lang, n=n))
+    confirm = io.readline(
+        t("browser.confirm_apply", lang=vault.lang, n=n)
+    ).strip().lower()
+    if confirm != "yes":
+        io.println("-")
+        return
+    # Second pass: actually attach staged entries to the vault.
+    for platform, entry in staged:
+        _entries(vault, platform).append(entry)
+    save_vault(vault)
+    io.println(t("io.imported", lang=vault.lang, n=n))
+
+
+def _platform_name_from_url(url: str) -> str:
+    """Derive a short platform name from a URL's host.
+
+    Examples:
+      https://www.github.com/login   -> "github"
+      https://gitlab.example.co.uk/  -> "example"
+      https://github.com             -> "github"
+      not_a_url                       -> "not_a_url"
+    """
+    from urllib.parse import urlparse
+    try:
+        host = urlparse(url).hostname or ""
+    except ValueError:
+        return url
+    if not host:
+        return url
+    parts = host.split(".")
+    # Strip leading "www." for cleaner grouping.
+    if parts[0] == "www" and len(parts) >= 2:
+        parts = parts[1:]
+    if len(parts) <= 2:
+        return parts[0]
+    # Treat 2-label TLDs like co.uk / com.au by dropping the last two labels.
+    if len(parts[-2]) <= 3 and parts[-1] in {"uk", "au", "jp", "br", "nz", "za", "in"}:
+        return parts[-3]
+    return parts[-2]
 
 
 def _normalize_entry(e: dict[str, Any]) -> dict[str, Any]:

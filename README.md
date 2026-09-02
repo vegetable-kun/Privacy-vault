@@ -104,6 +104,27 @@ python3 vault.py --vault /secure/place/my.vault
 
 所有多字节整数均为大端序（big-endian）。
 
+## 从浏览器导入
+
+`10) 导入/导出 → f) 从浏览器 CSV 导入` 支持直接读取 Firefox / Chrome / Edge 导出的密码 CSV，自动识别列格式并按 URL 主域分组写入 vault。
+
+**导出步骤**：
+
+- **Firefox**：地址栏输入 `about:logins` → 右上角 `⋯` → **导出登录信息…**
+- **Chrome**：地址栏输入 `chrome://settings/passwords` → 右上角 `⋯` → **导出密码…**
+- **Edge**：地址栏输入 `edge://settings/passwords` → 右上角 `⋯` → **导出密码…**
+
+**导入步骤**：
+
+1. 在 vault 里选 `10) 导入/导出 → f) 从浏览器 CSV 导入`。
+2. 输入刚才导出的 CSV 文件路径。
+3. 脚本先 dry-run（打印"将导入 N 条"），输入 `yes` 才真正写入。
+
+**不会做的事**：
+
+- 不读取浏览器内部加密的 `logins.json` / `Login Data`，避开 DPAPI / NSS 主密钥等安全复杂度。
+- 不动 `notes` / `fields` 之外的元数据；导入条目的 `notes` 会标记 `imported from <browser>`。
+
 ## 测试
 
 ```sh

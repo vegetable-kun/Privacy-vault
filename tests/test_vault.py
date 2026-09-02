@@ -481,5 +481,93 @@ class ReplTests(unittest.TestCase):
             self.assertIn("11) 切换语言", rendered)
 
 
+class BrowserCsvImportTests(unittest.TestCase):
+    """Browser CSV autodetect + import dry-run + commit."""
+
+    def _vault(self) -> tuple[v.Vault, Path]:
+        d = tempfile.TemporaryDirectory()
+        self.addCleanup(d.cleanup)
+        path = Path(d.name) / "t.vault"
+        salt = os.urandom(16)
+        key = v.derive_key("pw", salt, v.KDF_ITERATIONS)
+        vault = v.Vault(data={"platforms": {}}, lang="en", path=path, _key=key, _salt=salt)
+        return vault, path
+
+    def test_detect_firefox(self) -> None:
+        d = tempfile.TemporaryDirectory()
+        self.addCleanup(d.cleanup)
+        src = Path(d.name) / "firefox.csv"
+        src.write_text(
+            "url,username,password,httpRealm,formActionOrigin,guid\n"
+            "https://github.com,alice,s3cret,,,abc\n"
+        )
+        fmt = v._detect_browser_csv(src)
+        self.assertIsNotNone(fmt)
+        self.assertEqual(fmt.name, "firefox")
+
+    def test_detect_chrome(self) -> None:
+        d = tempfile.TemporaryDirectory()
+        self.addCleanup(d.cleanup)
+        src = Path(d.name) / "chrome.csv"
+        src.write_text(
+            "name,url,username,password,note\n"
+            "GitHub,https://github.com,alice,s3cret,\n"
+        )
+        fmt = v._detect_browser_csv(src)
+        self.assertIsNotNone(fmt)
+        self.assertEqual(fmt.name, "chrome/edge")
+        self.assertEqual(fmt.title_col, "name")
+
+    def test_detect_unknown(self) -> None:
+        d = tempfile.TemporaryDirectory()
+        self.addCleanup(d.cleanup)
+        src = Path(d.name) / "unknown.csv"
+        src.write_text("foo,bar,baz\n1,2,3\n")
+        self.assertIsNone(v._detect_browser_csv(src))
+
+    def test_import_dry_run_then_commit(self) -> None:
+        vault, vp = self._vault()
+        d = tempfile.TemporaryDirectory()
+        self.addCleanup(d.cleanup)
+        src = Path(d.name) / "ff.csv"
+        src.write_text(
+            "url,username,password\n"
+            "https://www.github.com/login,alice,s3cret\n"
+            "https://gitlab.example.co.uk,u2,p2\n"
+        )
+        # First run: no "yes" -> dry-run, vault unchanged.
+        fake = FakeIO([""])  # blank confirmation
+        v._import_browser_csv(fake, vault, src)
+        self.assertEqual(v._platforms(vault), {})  # not committed
+        # Second run: "yes" -> commit.
+        fake2 = FakeIO(["yes"])
+        v._import_browser_csv(fake2, vault, src)
+        plats = v._platforms(vault)
+        self.assertIn("github", plats)
+        self.assertIn("example", plats)
+        e = plats["github"]["entries"][0]
+        self.assertEqual(e["username"], "alice")
+        self.assertEqual(e["password"], "s3cret")
+        self.assertEqual(e["url"], "https://www.github.com/login")
+        # The "notes" field records provenance.
+        self.assertIn("firefox", e["notes"])
+
+    def test_import_skips_incomplete_rows(self) -> None:
+        vault, vp = self._vault()
+        d = tempfile.TemporaryDirectory()
+        self.addCleanup(d.cleanup)
+        src = Path(d.name) / "ff.csv"
+        src.write_text(
+            "url,username,password\n"
+            "https://github.com,alice,s3cret\n"
+            ",emptyuser,emptyurl\n"  # missing url -> skip
+            "https://gitlab.com,,nopwd\n"  # missing username -> skip
+        )
+        fake = FakeIO(["yes"])
+        v._import_browser_csv(fake, vault, src)
+        total = sum(len(b["entries"]) for b in v._platforms(vault).values())
+        self.assertEqual(total, 1)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

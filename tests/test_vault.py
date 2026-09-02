@@ -358,7 +358,7 @@ class ReplTests(unittest.TestCase):
             self.assertIn("备注", out)
 
     def test_list_platforms_no_highlight(self) -> None:
-        """Q3: 列表/查看/搜索/获取 不留 last_msg，下次菜单不重复高亮。"""
+        """Q3: list_platforms 高亮列表行并 set_status 末尾，不重复打印。"""
         with tempfile.TemporaryDirectory() as d:
             path = Path(d) / "t.vault"
             salt = os.urandom(16)
@@ -366,7 +366,12 @@ class ReplTests(unittest.TestCase):
             vault = v.Vault(data={"platforms": {"a": {"entries": []}, "b": {"entries": []}}}, lang="zh", path=path, _key=key, _salt=salt)
             fake = FakeIO([])
             v.cmd_list_platforms(fake, vault)
-            self.assertEqual(fake.last_msg, "")
+            out = fake.output()
+            # Row lines are colorized
+            self.assertIn(v.IO.ANSI_CYAN, out)
+            self.assertIn(v.IO.ANSI_GOLD, out)
+            # And the last_msg contains the summary that flush_last_highlighted will print once
+            self.assertIn("共列出", fake.last_msg)
 
     def test_show_platform_no_highlight(self) -> None:
         with tempfile.TemporaryDirectory() as d:
@@ -402,6 +407,34 @@ class ReplTests(unittest.TestCase):
         # Override read_menu_choice directly to confirm behavior without termios.
         fake.read_menu_choice = lambda: "q"  # type: ignore[assignment]
         self.assertEqual(fake.read_menu_choice(), "q")
+
+    def test_set_status_no_double_print(self) -> None:
+        """操作类命令：set_status 不应触发 println。"""
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "t.vault"
+            salt = os.urandom(16)
+            key = v.derive_key("pw", salt, v.KDF_ITERATIONS)
+            vault = v.Vault(data={"platforms": {"github": {"entries": [
+                {"id": "a", "username": "u", "password": "p", "url": "",
+                 "title": "", "tags": [], "notes": "", "fields": {},
+                 "created_at": "", "updated_at": ""}
+            ]}}}, lang="zh", path=path, _key=key, _salt=salt)
+            fake = FakeIO(["github", "0", ""])  # platform, entry index 0, empty -> finish
+            v.cmd_update_entry(fake, vault)
+            self.assertEqual(fake.output().count("条目已更新"), 0)
+            self.assertEqual(fake.last_msg, "条目已更新。")
+
+    def test_interrupt_warn_string(self) -> None:
+        """Q1: 双击 Ctrl+C 警告字符串存在。"""
+        self.assertIn("再按一次", v.STRINGS["zh"]["interrupt.warn"])
+        self.assertIn("Ctrl+C", v.STRINGS["en"]["interrupt.warn"])
+
+    def test_menu_renumbered(self) -> None:
+        """Q5: 11 = language, 12 = quit; save_quit 键已删。"""
+        self.assertIn("11) 切换语言", v.STRINGS["zh"]["menu.lang"])
+        self.assertNotIn("save_quit", v.STRINGS["zh"])
+        self.assertNotIn("save_quit", v.STRINGS["en"])
+        self.assertNotIn("保存并退出", v.STRINGS["zh"]["menu.lang"])
 
 
 if __name__ == "__main__":

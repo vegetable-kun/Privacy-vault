@@ -84,8 +84,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "menu.rename_platform": "8) Rename / delete platform",
         "menu.change_pwd": "9) Change master password",
         "menu.io": "10) Import / Export",
-        "menu.lang": "12) Language (current: {lang})",
-        "menu.save_quit": "11) Save & quit",
+        "menu.lang": "11) Language (current: {lang})",
         "menu.quit": "0) Quit (auto-save, or press q to quit immediately)",
         "menu.prompt": "Enter number: ",
         "goodbye": "Goodbye.",
@@ -108,6 +107,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "platform.deleted": "Platform deleted.",
         "platform.create_q": "Platform '{name}' does not exist. Create? [y/N]: ",
         "platform.invalid": "Invalid platform name (no '/' or '..').",
+        "platform.list_tail": "Total platforms listed (last: {name})",
         "entry.idx": "Entry index / id: ",
         "entry.title": "Title (optional): ",
         "entry.username": "Username / account: ",
@@ -153,6 +153,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "err.io": "I/O error: {err}",
         "err.json": "JSON error: {err}",
         "err.generic": "Error: {err}",
+        "interrupt.warn": "Are you sure? Press Ctrl+C again to quit immediately.",
         "yes": "y",
     },
     "zh": {
@@ -168,8 +169,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "menu.rename_platform": "8) 重命名/删除平台",
         "menu.change_pwd": "9) 修改主密码",
         "menu.io": "10) 导入/导出",
-        "menu.lang": "12) 切换语言（当前：{lang}）",
-        "menu.save_quit": "11) 保存并退出",
+        "menu.lang": "11) 切换语言（当前：{lang}）",
         "menu.quit": "0) 退出（自动保存；直接按 q 也立即退出）",
         "menu.prompt": "请输出数字：",
         "goodbye": "嘿嘿，https://github.com/vegetable-kun/Privacy-vault关注谢谢瞄^_^",
@@ -192,6 +192,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "platform.deleted": "平台已删除。",
         "platform.create_q": "平台 '{name}' 不存在，是否创建？[y/N]: ",
         "platform.invalid": "平台名非法（不允许 '/' 或 '..'）。",
+        "platform.list_tail": "共列出以上平台（最后：{name}）",
         "entry.idx": "条目序号/id：",
         "entry.title": "标题（可选）：",
         "entry.username": "账号：",
@@ -237,6 +238,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "err.io": "I/O 错误：{err}",
         "err.json": "JSON 错误：{err}",
         "err.generic": "错误：{err}",
+        "interrupt.warn": "确认要中断？再按一次 Ctrl+C 立即退出。",
         "yes": "y",
     },
 }
@@ -761,14 +763,16 @@ def cmd_list_platforms(io: "IO", vault: Vault) -> None:
     plats = _platforms(vault)
     if not plats:
         io.println(t("platform.empty", lang=vault.lang))
-        io.clear_last_msg()
         return
     io.println("")
     io.println(t("menu.list_platforms", lang=vault.lang))
+    last_label = ""
     for i, (name, body) in enumerate(sorted(plats.items())):
-        io.println(f"  {i:>3}) {name}  ({len(body.get('entries', []))})")
-    io.println("")
-    io.clear_last_msg()
+        last_label = name
+        cnt = len(body.get("entries", []))
+        io.println("  " + io.paint_kv(f"{i:>3}) {name}", f"({cnt})"))
+    if last_label:
+        io.set_status(t("platform.list_tail", lang=vault.lang, name=last_label))
 
 
 def cmd_show_platform(io: "IO", vault: Vault, name: str | None) -> None:
@@ -809,7 +813,7 @@ def cmd_show_platform(io: "IO", vault: Vault, name: str | None) -> None:
             io.println("      " + io.paint_kv(_label("tags", vault.lang), ",".join(e["tags"])))
         if e.get("fields"):
             for k, v_ in e["fields"].items():
-                io.println("      " + io.paint_kv(f"field[{k}]", str(v_)))
+                io.println("      " + io.paint_kv(_label(k, vault.lang), str(v_)))
         if e.get("notes"):
             io.println("      " + io.paint_kv(_label("notes", vault.lang), str(e["notes"])))
     io.clear_last_msg()
@@ -879,7 +883,7 @@ def cmd_add_entry(io: "IO", vault: Vault, platform: str | None) -> None:
 
     _entries(vault, name).append(entry)
     save_vault(vault)
-    io.println(t("entry.added", lang=vault.lang))
+    io.set_status(t("entry.added", lang=vault.lang))
 
 
 def cmd_update_entry(io: "IO", vault: Vault) -> None:
@@ -944,7 +948,7 @@ def cmd_update_entry(io: "IO", vault: Vault) -> None:
 
     entry["updated_at"] = _now_iso()
     save_vault(vault)
-    io.println(t("entry.updated", lang=vault.lang))
+    io.set_status(t("entry.updated", lang=vault.lang))
 
 
 def cmd_delete_entry(io: "IO", vault: Vault) -> None:
@@ -967,7 +971,7 @@ def cmd_delete_entry(io: "IO", vault: Vault) -> None:
     if not entries:
         _platforms(vault).pop(name, None)
     save_vault(vault)
-    io.println(t("entry.deleted", lang=vault.lang))
+    io.set_status(t("entry.deleted", lang=vault.lang))
 
 
 def cmd_get_secret(io: "IO", vault: Vault) -> None:
@@ -1047,13 +1051,13 @@ def cmd_rename_platform(io: "IO", vault: Vault) -> None:
             return
         plats[new_name] = plats.pop(name)
         save_vault(vault)
-        io.println(t("platform.renamed", lang=vault.lang))
+        io.set_status(t("platform.renamed", lang=vault.lang))
     elif action == "d":
         confirm = io.readline(f"  delete platform '{name}'? type 'yes': ").strip()
         if confirm == "yes":
             plats.pop(name, None)
             save_vault(vault)
-            io.println(t("platform.deleted", lang=vault.lang))
+            io.set_status(t("platform.deleted", lang=vault.lang))
 
 
 def cmd_change_password(io: "IO", vault: Vault) -> None:
@@ -1077,7 +1081,7 @@ def cmd_change_password(io: "IO", vault: Vault) -> None:
     vault._key = new_key
     vault._salt = new_salt
     save_vault(vault)
-    io.println(t("pwd.changed", lang=vault.lang))
+    io.set_status(t("pwd.changed", lang=vault.lang))
 
 
 def cmd_import_export(io: "IO", vault: Vault) -> None:
@@ -1109,7 +1113,7 @@ def cmd_language(io: "IO", vault: Vault) -> None:
     new_lang = LANG_ZH if vault.lang == LANG_EN else LANG_EN
     vault.lang = new_lang
     save_vault(vault)
-    io.println(t("lang.switched", lang=vault.lang).format(lang=new_lang))
+    io.set_status(t("lang.switched", lang=vault.lang).format(lang=new_lang))
 
 
 # ---------------------------------------------------------------------------
@@ -1271,7 +1275,9 @@ class IO:
         """Read one menu selection.
 
         - 'q' (or 'Q') returns immediately with "q" (single-key quit).
-        - '\\x03' / '\\x04' returns with "q" (Ctrl-C / Ctrl-D also quit).
+        - '\\x03' returns with "\\x03" so the caller can implement a two-strike
+          interrupt confirmation flow.
+        - '\\x04' returns with "q" (Ctrl-D still quits immediately).
         - Other input still requires Enter to submit.
         """
         fd = sys.stdin.fileno()
@@ -1288,7 +1294,11 @@ class IO:
                     sys.stdout.write("q\r\n")
                     sys.stdout.flush()
                     return "q"
-                if ch in (b"\x03", b"\x04"):
+                if ch == b"\x03":
+                    sys.stdout.write("^C\r\n")
+                    sys.stdout.flush()
+                    return "\x03"
+                if ch == b"\x04":
                     return "q"
                 if ch in (b"\r", b"\n"):
                     sys.stdout.write("\r\n")
@@ -1311,6 +1321,15 @@ class IO:
         print(msg)
         if msg:
             self.last_msg = msg
+
+    def set_status(self, msg: str) -> None:
+        """Stage a status message; printed in gold on the next loop iteration.
+
+        Use this for action results ('Entry added.',', 'Language updated', ...) so
+        they appear exactly once — highlighted — on the line above the next menu,
+        rather than being printed twice (once plain, once highlighted).
+        """
+        self.last_msg = msg
 
     def flush_last_highlighted(self) -> None:
         """Print the last non-empty output line in gold, then clear it."""
@@ -1347,7 +1366,6 @@ def _print_menu(vault: Vault) -> None:
         "menu.rename_platform",
         "menu.change_pwd",
         "menu.io",
-        "menu.save_quit",
         "menu.lang",
         "menu.quit",
     ):
@@ -1373,9 +1391,9 @@ def run_repl(vault: Vault) -> None:
         "8": lambda: cmd_rename_platform(io, vault),
         "9": lambda: cmd_change_password(io, vault),
         "10": lambda: cmd_import_export(io, vault),
-        "11": lambda: _save_and_quit(io, vault),
-        "12": lambda: cmd_language(io, vault),
+        "11": lambda: cmd_language(io, vault),
     }
+    interrupt_count = 0
     while True:
         io.flush_last_highlighted()
         _print_menu(vault)
@@ -1383,6 +1401,14 @@ def run_repl(vault: Vault) -> None:
         if choice in ("", "0", "q", "quit"):
             _save_and_quit(io, vault)
             return
+        if choice == "\x03":  # Ctrl+C surfaced via raw mode
+            interrupt_count += 1
+            if interrupt_count == 1:
+                io.println(t("interrupt.warn", lang=vault.lang))
+                continue
+            _save_and_quit(io, vault)
+            return
+        interrupt_count = 0
         handler = handlers.get(choice)
         if handler is None:
             io.println("?")
@@ -1390,6 +1416,10 @@ def run_repl(vault: Vault) -> None:
         try:
             handler()
         except (KeyboardInterrupt, EOFError):
+            interrupt_count += 1
+            if interrupt_count == 1:
+                io.println(t("interrupt.warn", lang=vault.lang))
+                continue
             io.println("")
             _save_and_quit(io, vault)
             return

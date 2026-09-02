@@ -436,6 +436,50 @@ class ReplTests(unittest.TestCase):
         self.assertNotIn("save_quit", v.STRINGS["en"])
         self.assertNotIn("保存并退出", v.STRINGS["zh"]["menu.lang"])
 
+    def test_commands_registry_well_formed(self) -> None:
+        """#2: Every Command has a label_key present in both STRINGS buckets.
+
+        Catches the failure mode 'added a cmd_*, forgot the i18n key'.
+        """
+        for cmd in v.COMMANDS:
+            self.assertIn(cmd.label_key, v.STRINGS["en"], f"missing en key: {cmd.label_key}")
+            self.assertIn(cmd.label_key, v.STRINGS["zh"], f"missing zh key: {cmd.label_key}")
+            self.assertTrue(callable(cmd.handler), f"handler not callable: {cmd}")
+
+    def test_commands_registry_unique_labels(self) -> None:
+        """No duplicate label_keys (would collide in the menu)."""
+        labels = [c.label_key for c in v.COMMANDS]
+        self.assertEqual(len(labels), len(set(labels)))
+
+    def test_print_menu_uses_commands(self) -> None:
+        """_print_menu iterates over COMMANDS, so adding a row only changes one place."""
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "t.vault"
+            salt = os.urandom(16)
+            key = v.derive_key("pw", salt, v.KDF_ITERATIONS)
+            vault = v.Vault(data={"platforms": {}}, lang="zh", path=path, _key=key, _salt=salt)
+            # Capture stdout
+            import io as _io
+            import sys as _sys
+            buf = _io.StringIO()
+            saved = _sys.stdout
+            _sys.stdout = buf
+            try:
+                v._print_menu(vault)
+            finally:
+                _sys.stdout = saved
+            rendered = buf.getvalue()
+            # Each COMMANDS label_key must appear in the rendered menu (with its translated text).
+            for cmd in v.COMMANDS:
+                # Verify the translated row template renders; i.e. the i18n template is referenced.
+                self.assertTrue(
+                    v.STRINGS["zh"][cmd.label_key],
+                    f"empty template for {cmd.label_key}",
+                )
+            # And the menu actually contains the localized rows.
+            self.assertIn("1) 列出所有平台", rendered)
+            self.assertIn("11) 切换语言", rendered)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

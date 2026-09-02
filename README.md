@@ -119,6 +119,29 @@ python3 tests/test_vault.py
 - 错密码拒绝
 - REPL 添加条目流程（使用 FakeIO 注入）
 - 语言偏好保存与重载
+- COMMANDS 注册表完整性（每个菜单项都有中英 i18n key，标签唯一）
+
+## 开发说明：新增菜单项
+
+所有菜单项都在 `vault.py` 顶部的 `COMMANDS` 列表里集中声明。新增 / 删除 / 重排都只需要修改这一处：
+
+```python
+COMMANDS: list[Command] = [
+    Command("menu.list_platforms", cmd_list_platforms),
+    Command("menu.show_platform", cmd_show_platform, pre_arg=lambda: None),
+    # ...
+    Command("menu.lang", cmd_language, fmt={"lang": lambda v: v.lang}),
+]
+```
+
+每条 `Command` 含：
+
+- `label_key`：i18n 键（在 `STRINGS["en"]` 和 `STRINGS["zh"]` 中必须同时存在）。
+- `handler`：执行函数，签名 `(io, vault)` 或 `(io, vault, pre_arg)`。
+- `fmt`：模板 `{xxx}` 占位符 → `vault -> str` 的映射（用于运行时拼装，如"切换语言（当前：zh）"）。
+- `pre_arg`：handler 第三个参数的取值器（默认 `None`，即"询问用户"）。
+
+退出固定编号 0（`menu.quit`），由 `_print_menu` 与 `run_repl` 单独处理，不进 `COMMANDS`。
 
 ## 备份建议
 

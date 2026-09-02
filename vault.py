@@ -32,7 +32,6 @@ import hmac
 import json
 import os
 import secrets
-import shutil
 import struct
 import sys
 import tempfile
@@ -419,23 +418,6 @@ def _expand_key(key: bytes) -> list[bytes]:
         elif i % Nk == 4:
             temp = [_SBOX[b] for b in temp]
         w.append([w[i - Nk][j] ^ temp[j] for j in range(4)])
-    return [bytes(4 * i + j for j in range(4) for i in range(4)) for w_ in [w[k * 4 : k * 4 + 4] for k in range(Nr + 1)] for w_ in [0]]
-
-
-def _expand_key(key: bytes) -> list[bytes]:  # type: ignore[no-redef]
-    assert len(key) == 32
-    Nk = 8
-    Nr = 14
-    w = [list(key[4 * i : 4 * i + 4]) for i in range(Nk)]
-    for i in range(Nk, 4 * (Nr + 1)):
-        temp = w[i - 1][:]
-        if i % Nk == 0:
-            temp = temp[1:] + temp[:1]
-            temp = [_SBOX[b] for b in temp]
-            temp[0] ^= _RCON[i // Nk]
-        elif i % Nk == 4:
-            temp = [_SBOX[b] for b in temp]
-        w.append([w[i - Nk][j] ^ temp[j] for j in range(4)])
     rks = []
     for k in range(Nr + 1):
         rk_bytes = bytes(w[k * 4][i] for i in range(4)) + bytes(w[k * 4 + 1][i] for i in range(4)) + \
@@ -556,6 +538,26 @@ class _AesGcm:
 # ---------------------------------------------------------------------------
 # Vault on-disk format
 # ---------------------------------------------------------------------------
+
+
+@dataclass
+class Command:
+    """Registry entry for a single menu item.
+
+    `label_key` is the i18n key for the menu row (e.g. 'menu.add').
+    `handler` is the cmd_* function to invoke.
+    `fmt` maps placeholder names -> callables taking `vault` to produce the
+    replacement text. Use this for menu rows whose template needs runtime data
+    (e.g. the current language token in '12) Language (current: {lang})').
+    `pre_arg` is an optional positional argument prepended to (io, vault) when
+    invoking the handler; used for `cmd_show_platform(io, vault, name)` and
+    `cmd_add_entry(io, vault, platform)` whose third arg is `None` to mean
+    'ask the user'.
+    """
+    label_key: str
+    handler: Callable[..., None]
+    fmt: dict[str, Callable[[Vault], str]] = field(default_factory=dict)
+    pre_arg: Callable[[], Any] | None = None
 
 
 @dataclass
@@ -1352,47 +1354,52 @@ class IO:
 # ---------------------------------------------------------------------------
 
 
+# Menu registry: one entry per row, displayed 1..N in declaration order.
+# Index 0 (quit) is fixed and rendered separately; it is NOT in COMMANDS.
+COMMANDS: list[Command] = [
+    Command("menu.list_platforms", cmd_list_platforms),
+    Command("menu.show_platform", cmd_show_platform, pre_arg=lambda: None),
+    Command("menu.add", cmd_add_entry, pre_arg=lambda: None),
+    Command("menu.update", cmd_update_entry),
+    Command("menu.delete", cmd_delete_entry),
+    Command("menu.get", cmd_get_secret),
+    Command("menu.search", cmd_search),
+    Command("menu.rename_platform", cmd_rename_platform),
+    Command("menu.change_pwd", cmd_change_password),
+    Command("menu.io", cmd_import_export),
+    Command(
+        "menu.lang",
+        cmd_language,
+        fmt={"lang": lambda v: v.lang},
+    ),
+]
+
+
 def _print_menu(vault: Vault) -> None:
     out = sys.stdout
     out.write(t("menu.title", lang=vault.lang) + "\n")
-    for k in (
-        "menu.list_platforms",
-        "menu.show_platform",
-        "menu.add",
-        "menu.update",
-        "menu.delete",
-        "menu.get",
-        "menu.search",
-        "menu.rename_platform",
-        "menu.change_pwd",
-        "menu.io",
-        "menu.lang",
-        "menu.quit",
-    ):
-        if k == "menu.lang":
-            line = t(k, lang=vault.lang).format(lang=vault.lang)
-        else:
-            line = t(k, lang=vault.lang)
+    for idx, cmd in enumerate(COMMANDS, 1):
+        line = t(cmd.label_key, lang=vault.lang)
+        if cmd.fmt:
+            line = line.format(**{k: fn(vault) for k, fn in cmd.fmt.items()})
         out.write(line + "\n")
+    out.write(t("menu.quit", lang=vault.lang) + "\n")
     out.write(t("menu.prompt", lang=vault.lang))
     out.flush()
 
 
+def _invoke(cmd: Command, io: IO, vault: Vault) -> None:
+    if cmd.pre_arg is not None:
+        cmd.handler(io, vault, cmd.pre_arg())
+    else:
+        cmd.handler(io, vault)
+
+
 def run_repl(vault: Vault) -> None:
     io = IO()
-    handlers: dict[str, Callable[[], None]] = {
-        "1": lambda: cmd_list_platforms(io, vault),
-        "2": lambda: cmd_show_platform(io, vault, None),
-        "3": lambda: cmd_add_entry(io, vault, None),
-        "4": lambda: cmd_update_entry(io, vault),
-        "5": lambda: cmd_delete_entry(io, vault),
-        "6": lambda: cmd_get_secret(io, vault),
-        "7": lambda: cmd_search(io, vault),
-        "8": lambda: cmd_rename_platform(io, vault),
-        "9": lambda: cmd_change_password(io, vault),
-        "10": lambda: cmd_import_export(io, vault),
-        "11": lambda: cmd_language(io, vault),
-    }
+    # Build a dispatch map: choice string -> Command. Index 0 is reserved for
+    # 'quit', indices 1..N map to COMMANDS in order.
+    dispatch: dict[str, Command] = {str(i): cmd for i, cmd in enumerate(COMMANDS, 1)}
     interrupt_count = 0
     while True:
         io.flush_last_highlighted()
@@ -1409,12 +1416,12 @@ def run_repl(vault: Vault) -> None:
             _save_and_quit(io, vault)
             return
         interrupt_count = 0
-        handler = handlers.get(choice)
-        if handler is None:
+        cmd = dispatch.get(choice)
+        if cmd is None:
             io.println("?")
             continue
         try:
-            handler()
+            _invoke(cmd, io, vault)
         except (KeyboardInterrupt, EOFError):
             interrupt_count += 1
             if interrupt_count == 1:

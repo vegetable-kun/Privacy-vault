@@ -267,6 +267,66 @@ class ReplTests(unittest.TestCase):
         self.assertIn("Entry added.", fake.output())
         self.assertEqual(fake.last_msg, "")
 
+    def test_update_entry_submenu(self) -> None:
+        """Update entry uses the same sub-menu style as add entry.
+
+        Select 1=username, 3=title, 7=notes, then empty to finish.
+        """
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "t.vault"
+            salt = os.urandom(16)
+            key = v.derive_key("pw", salt, v.KDF_ITERATIONS)
+            vault = v.Vault(data={"platforms": {"github": {"entries": [
+                {"id": "abc", "username": "alice", "password": "s3cret",
+                 "title": "old", "url": "", "tags": [], "notes": "",
+                 "fields": {}, "created_at": "", "updated_at": ""}
+            ]}}}, lang="zh", path=path, _key=key, _salt=salt)
+            inputs = [
+                "github",
+                "0",
+                "1",
+                "alice2",
+                "3",
+                "new title",
+                "7",
+                "updated",
+                "",
+            ]
+            fake = FakeIO(inputs)
+            v.cmd_update_entry(fake, vault)
+            e = v._platforms(vault)["github"]["entries"][0]
+            self.assertEqual(e["username"], "alice2")
+            self.assertEqual(e["title"], "new title")
+            self.assertEqual(e["notes"], "updated")
+            self.assertEqual(e["password"], "s3cret")
+
+    def test_paint_kv(self) -> None:
+        """Key/value colorized in cyan/gold via paint_kv."""
+        fake = FakeIO([])
+        line = fake.paint_kv("user", "alice")
+        self.assertIn(v.IO.ANSI_CYAN, line)
+        self.assertIn(v.IO.ANSI_GOLD, line)
+        self.assertIn("user", line)
+        self.assertIn("alice", line)
+
+    def test_show_platform_uses_paint_kv(self) -> None:
+        """cmd_show_platform output contains ANSI color codes."""
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "t.vault"
+            salt = os.urandom(16)
+            key = v.derive_key("pw", salt, v.KDF_ITERATIONS)
+            vault = v.Vault(data={"platforms": {"github": {"entries": [
+                {"id": "abcdef1234", "username": "alice", "password": "x",
+                 "url": "https://x", "title": "t", "tags": ["a"],
+                 "notes": "n", "fields": {"api_key": "k"},
+                 "created_at": "", "updated_at": ""}
+            ]}}}, lang="en", path=path, _key=key, _salt=salt)
+            fake = FakeIO([])
+            v.cmd_show_platform(fake, vault, "github")
+            out = fake.output()
+            self.assertIn(v.IO.ANSI_CYAN, out)
+            self.assertIn(v.IO.ANSI_GOLD, out)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

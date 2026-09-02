@@ -1,13 +1,25 @@
 #!/usr/bin/env python3
-"""vault.py - Local encrypted credential manager.
+"""vault.py - 本地加密凭据管理器 / Local encrypted credential manager.
 
-Single-file encrypted vault using AES-256-GCM with PBKDF2-HMAC-SHA256 (600k iters).
-Stores account / password / API-key style entries grouped by platform.
-Interactive CLI with bilingual (zh/en) menu.
+中文：
+    一个纯 Python 3.10+ 单文件加密凭据管理器，零第三方依赖。
+    使用 AES-256-GCM（AEAD）+ PBKDF2-HMAC-SHA256（600 000 次迭代）保护数据。
+    按平台（GitHub、AWS 等）分组存放账号 / 密码 / API key 等条目，
+    提供中英双语交互式 CLI，支持 JSON/CSV 导入导出与模糊搜索。
 
-Threat model:
-  - Protects credentials at rest against disk theft when master password is strong.
-  - Does NOT protect against a compromised local OS, keylogger, or unlocked memory.
+English:
+    A single-file encrypted credential manager in pure Python 3.10+ with no
+    third-party dependencies. Uses AES-256-GCM (AEAD) and PBKDF2-HMAC-SHA256
+    (600 000 iterations) to protect data at rest. Groups entries by platform
+    (GitHub, AWS, ...) with account / password / API-key style fields.
+    Interactive CLI with bilingual (zh/en) menu, JSON/CSV import-export, and
+    fuzzy search.
+
+Threat model / 威胁模型:
+  - Protects credentials at rest against disk theft when master password is
+    strong; 在主密码足够强时，能防止磁盘盗窃或随意查阅泄露静态凭据。
+  - Does NOT protect against a compromised local OS, keylogger, or unlocked
+    memory; 不能防御操作系统被入侵、键盘记录器、解锁后的内存暴露。
 """
 from __future__ import annotations
 
@@ -106,6 +118,8 @@ STRINGS: dict[str, dict[str, str]] = {
         "entry.optional_menu": "Add optional fields? (1=title 2=url 3=api_key 4=tags 5=notes; empty to finish)",
         "entry.optional_menu_cur": "[{label}] {field}: ",
         "entry.optional_done": "(done)",
+        "entry.update_menu": "Update which field? (1=username 2=password 3=title 4=url 5=api_key 6=tags 7=notes; empty to finish)",
+        "entry.update_prompt": "[{label}] [{cur}]: ",
         "entry.updated": "Entry updated.",
         "entry.deleted": "Entry deleted.",
         "entry.not_found": "Entry not found.",
@@ -188,6 +202,8 @@ STRINGS: dict[str, dict[str, str]] = {
         "entry.optional_menu": "是否添加备注？(1=标题 2=网址 3=API_KEY 4=标签 5=备注；空行退出)",
         "entry.optional_menu_cur": "[{label}] {field}：",
         "entry.optional_done": "（完成）",
+        "entry.update_menu": "修改哪个字段？(1=账号 2=密码/密钥 3=标题 4=网址 5=API_KEY 6=标签 7=备注；空行退出)",
+        "entry.update_prompt": "[{label}] [{cur}]：",
         "entry.updated": "条目已更新。",
         "entry.deleted": "条目已删除。",
         "entry.not_found": "未找到条目。",
@@ -747,15 +763,22 @@ def cmd_show_platform(io: "IO", vault: Vault, name: str | None) -> None:
     io.println(f"-- {name} ({len(entries)}) --")
     for i, e in enumerate(entries):
         io.println(
-            f"  [{i}] id={e.get('id', '')[:8]}  user={e.get('username', '')}  title={e.get('title', '')}  url={e.get('url', '')}"
+            "  "
+            + io.paint_kv("[{}]".format(i), "id={}".format(e.get("id", "")[:8]))
+            + "  "
+            + io.paint_kv("user", str(e.get("username", "")))
+            + "  "
+            + io.paint_kv("title", str(e.get("title", "")))
+            + "  "
+            + io.paint_kv("url", str(e.get("url", "")))
         )
         if e.get("tags"):
-            io.println(f"      tags={','.join(e['tags'])}")
+            io.println("      " + io.paint_kv("tags", ",".join(e["tags"])))
         if e.get("fields"):
-            for k in e["fields"]:
-                io.println(f"      field[{k}]=***")
+            for k, v_ in e["fields"].items():
+                io.println("      " + io.paint_kv(f"field[{k}]", str(v_)))
         if e.get("notes"):
-            io.println(f"      notes={e['notes']}")
+            io.println("      " + io.paint_kv("notes", str(e["notes"])))
 
 
 def cmd_add_entry(io: "IO", vault: Vault, platform: str | None) -> None:
@@ -837,19 +860,54 @@ def cmd_update_entry(io: "IO", vault: Vault) -> None:
         io.println(t("entry.not_found", lang=vault.lang))
         return
     idx, entry = found
-    entry["title"] = io.readline(f"{t('entry.title', lang=vault.lang)} [{entry.get('title', '')}]: ").strip() or entry.get("title", "")
-    entry["username"] = io.readline(f"{t('entry.username', lang=vault.lang)} [{entry.get('username', '')}]: ").strip() or entry["username"]
-    pwd = io.readline(t("entry.password", lang=vault.lang), secret=True)
-    if pwd:
-        entry["password"] = pwd
-    entry["url"] = io.readline(f"{t('entry.url', lang=vault.lang)} [{entry.get('url', '')}]: ").strip() or entry.get("url", "")
-    entry["notes"] = io.readline(f"{t('entry.notes', lang=vault.lang)} [{entry.get('notes', '')}]: ").strip() or entry.get("notes", "")
-    tags_line = io.readline(f"{t('entry.tags', lang=vault.lang)} [{','.join(entry.get('tags', []))}]: ").strip()
-    if tags_line:
-        entry["tags"] = [x.strip() for x in tags_line.split(",") if x.strip()]
-    fields_line = io.readline(f"{t('entry.fields', lang=vault.lang)} [{_fields_summary(entry.get('fields', {}))}]: ").strip()
-    if fields_line:
-        entry["fields"] = _parse_fields(fields_line)
+
+    while True:
+        io.println(t("entry.update_menu", lang=vault.lang))
+        choice = io.readline("").strip()
+        if choice == "":
+            break
+        if choice == "1":
+            new_val = io.readline(
+                t("entry.update_prompt", lang=vault.lang, label="username", cur=entry.get("username", ""))
+            ).strip()
+            if new_val:
+                entry["username"] = new_val
+        elif choice == "2":
+            new_val = io.readline(t("entry.password", lang=vault.lang), secret=True)
+            if new_val:
+                entry["password"] = new_val
+        elif choice == "3":
+            new_val = io.readline(
+                t("entry.update_prompt", lang=vault.lang, label="title", cur=entry.get("title", ""))
+            ).strip()
+            entry["title"] = new_val
+        elif choice == "4":
+            new_val = io.readline(
+                t("entry.update_prompt", lang=vault.lang, label="url", cur=entry.get("url", ""))
+            ).strip()
+            entry["url"] = new_val
+        elif choice == "5":
+            new_val = io.readline(
+                t("entry.update_prompt", lang=vault.lang, label="API_KEY", cur=entry.get("fields", {}).get("api_key", ""))
+            ).strip()
+            entry.setdefault("fields", {})["api_key"] = new_val
+        elif choice == "6":
+            cur = ",".join(entry.get("tags", []))
+            new_val = io.readline(
+                t("entry.update_prompt", lang=vault.lang, label="tags", cur=cur)
+            ).strip()
+            if new_val:
+                entry["tags"] = [x.strip() for x in new_val.split(",") if x.strip()]
+        elif choice == "7":
+            new_val = io.readline(
+                t("entry.update_prompt", lang=vault.lang, label="notes", cur=entry.get("notes", ""))
+            ).strip()
+            entry["notes"] = new_val
+        else:
+            io.println("?")
+            continue
+        io.println(t("entry.optional_done", lang=vault.lang))
+
     entry["updated_at"] = _now_iso()
     save_vault(vault)
     io.println(t("entry.updated", lang=vault.lang))
@@ -890,11 +948,11 @@ def cmd_get_secret(io: "IO", vault: Vault) -> None:
         io.println(t("get.not_found", lang=vault.lang))
         return
     _, entry = found
-    io.println(f"  user:     {entry.get('username', '')}")
-    io.println(f"  password: {entry.get('password', '')}")
+    io.println("  " + io.paint_kv("user", str(entry.get("username", ""))))
+    io.println("  " + io.paint_kv("password", str(entry.get("password", ""))))
     if entry.get("fields"):
         for k, v in entry["fields"].items():
-            io.println(f"  field[{k}]: {v}")
+            io.println("  " + io.paint_kv(f"field[{k}]", str(v)))
     io.println(t("get.printed", lang=vault.lang))
     _remind_clipboard_clear()
 
@@ -925,7 +983,14 @@ def cmd_search(io: "IO", vault: Vault) -> None:
         return
     io.println(t("search.results", lang=vault.lang, n=len(matches)))
     for name, e in matches:
-        io.println(f"  [{name}] user={e.get('username', '')}  title={e.get('title', '')}  id={e.get('id', '')[:8]}")
+        io.println(
+            "  "
+            + io.paint_kv(f"[{name}]", "id={}".format(e.get("id", "")[:8]))
+            + "  "
+            + io.paint_kv("user", str(e.get("username", "")))
+            + "  "
+            + io.paint_kv("title", str(e.get("title", "")))
+        )
 
 
 def cmd_rename_platform(io: "IO", vault: Vault) -> None:
@@ -1151,6 +1216,7 @@ def _peek_salt(vault: Vault) -> bytes:
 
 class IO:
     ANSI_GOLD = "\033[33;1m"
+    ANSI_CYAN = "\033[36;1m"
     ANSI_RESET = "\033[0m"
 
     def __init__(self) -> None:
@@ -1175,6 +1241,10 @@ class IO:
             sys.stdout.write(f"{self.ANSI_GOLD}{self.last_msg}{self.ANSI_RESET}\n")
             sys.stdout.flush()
             self.last_msg = ""
+
+    def paint_kv(self, key: str, value: str) -> str:
+        """Render 'key: value' with key in cyan and value in gold."""
+        return f"{self.ANSI_CYAN}{key}{self.ANSI_RESET}: {self.ANSI_GOLD}{value}{self.ANSI_RESET}"
 
 
 # ---------------------------------------------------------------------------

@@ -175,7 +175,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "menu.lang": "11) 切换语言（当前：{lang}）",
         "menu.quit": "0) 退出（自动保存；直接按 q 也立即退出）",
         "menu.prompt": "请输出数字：",
-        "goodbye": "嘿嘿，https://github.com/vegetable-kun/Privacy-vault关注谢谢瞄^_^",
+        "goodbye": "嘿嘿，https://github.com/vegetable-kun/Privacy-vault 关注谢谢瞄^_^",
         "press_enter": "按 Enter 继续...",
         "init.create": "在 {path} 未找到库，是否新建？[y/N]: ",
         "init.master_prompt": "设置主密码（>= {n} 个字符，推荐大小写英文+数字+符号）：",

@@ -9,7 +9,7 @@
 - 一个平台下可挂多条条目；每条条目包含 `username`、`password`、`url`、`tags`、`notes`，以及一个用于存放 API key 等任意附加数据的 `fields` 自由键值表。
 - 主密码保护；文件落盘后对外是不可识别的密文。
 - 交互式 CLI，菜单支持**中英双语**（English / 简体中文），运行中可通过 `12) Language` 切换。
-- 支持 JSON / CSV 明文导入与导出（写入前会给出明确警告）。
+- 支持Edge等浏览器 JSON / CSV 明文导入与导出（写入前会给出明确警告）。
 - 支持跨平台、账号、网址、标签、备注、字段值的模糊搜索。
 
 ## 威胁模型
@@ -44,6 +44,11 @@ vault/
 ```
 
 ## 使用方法
+
+
+```sh
+git clone https://github.com/vegetable-kun/Privacy-vault.git && cd Privacy-vault  # 拉取仓库
+```
 
 ```sh
 python3 vault.py            # 默认使用 ~/.vault
